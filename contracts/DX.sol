@@ -1,16 +1,18 @@
 pragma solidity ^0.4.19;
 
-contract DutchExchangeInterface {
+contract DX {
 
-	function computeRatioOfHistoricalPriceOracles(
+	function getPriceInPastAuction(
 		address sellToken,
 		address buyToken,
 		uint auctionIndex
 	)
         public
         view
-        // price < 10^35
-        returns (uint, uint);
+        returns (uint, uint)
+    {
+    	return (2, 1);
+    }
 
 	function getAuctionIndex(
 		address token1,
@@ -18,5 +20,8 @@ contract DutchExchangeInterface {
 	)
         public
         view
-        returns (uint);
+        returns (uint)
+    {
+    	return 1;
+    }
 }

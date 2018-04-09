@@ -1,7 +1,7 @@
 pragma solidity ^0.4.19;
 
-import "./ERC20Interface.sol";
-import "./DutchExchangeInterface.sol";
+import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
+import "./DX.sol";
 import "./LendingAgreement.sol";
 
 contract RequestRegistry {
@@ -9,14 +9,13 @@ contract RequestRegistry {
     uint constant REQUEST_COLLATERAL = 4;
     uint constant AGREEMENT_COLLATERAL = 3;
 
-    struct borrowRequest {
-        address borrower;
-        address cT;
-        address bT;
-        uint collateralAmount;
-        uint amount;
-        uint paybackTime;
-        uint interest;
+    struct request {
+        address Pc;
+        address Tc;
+        address Tb;
+        uint Ac;
+        uint Ab;
+        uint returnTime;
     }
 
     struct fraction {
@@ -25,129 +24,185 @@ contract RequestRegistry {
     }
 
     bool isInitialised;
-    address dutchExchange;
+    address dx;
 
     // token => index => request
-    mapping (address => mapping (uint => borrowRequest)) public borrowRequests;
+    mapping (address => mapping (uint => request)) public requests;
     // token => latestIndex
     mapping (address => uint) public latestIndices;
 
+    function RequestRegistry(
+        address _dx
+    )
+        public
+    {
+        dx = _dx;
+    }
+
     function setupRequestRegistry(
-        address _dutchExchange
+        address _dx
     )
         public
     {
         require(!isInitialised);
 
-        dutchExchange = _dutchExchange;
+        dx = _dx;
 
         isInitialised = true;
     }
 
 
     // For the purposes of this contract:
-    // cT = collateral token
+    // Tc = collateral token
 
     /// @dev post a new borrow request
-    /// @param cT - 
-    function postBorrowRequest(
-        address cT,
-        address bT,
-        uint amount,
-        uint paybackTime,
-        uint interest
+    /// @param Tc - 
+    function postRequest(
+        address Tc,
+        address Tb,
+        uint Ab,
+        uint returnTime
     )
         public
     {
-        // latestAuctionIndex | 10^5
-        uint lAI = DutchExchangeInterface(dutchExchange).getAuctionIndex(cT, bT);
-        // 10^35
+        // get ratio of prices from DutchX
+        uint num; uint den;
+        (num, den) = getRatioOfPricesFromDX(Tb, Tc);
 
-        uint num;
-        uint den;
-        (num, den) = DutchExchangeInterface(dutchExchange).computeRatioOfHistoricalPriceOracles(bT, cT, lAI);
-
-        // uint collateralAmount = amount * 2 * bTPrice / cTPrice;
-        uint collateralAmount = amount * REQUEST_COLLATERAL * num / den;
+        // uint Ac = Ab * REQUEST_COLLATERAL * TPbrice / TPcrice;
+        uint Ac = Ab * REQUEST_COLLATERAL * num / den;
 
         // Transfer collateral
-        require(ERC20Interface(cT).transferFrom(msg.sender, this, collateralAmount));
+        require(StandardToken(Tc).transferFrom(msg.sender, this, Ac));
 
-        uint latestIndex = latestIndices[bT];
+        // if (! StandardToken(Tc).transferFrom(msg.sender, this, Ac)) {
+        //     Log('Not working', 1);
+        //     return;
+        // }
+
+        uint latestIndex = latestIndices[Tb];
 
         // Create borrow request
-        borrowRequests[bT][latestIndex + 1] = borrowRequest(
+        requests[Tb][latestIndex + 1] = request(
             msg.sender,
-            cT,
-            bT,
-            collateralAmount,
-            amount,
-            paybackTime,
-            interest
+            Tc,
+            Tb,
+            Ac,
+            Ab,
+            returnTime
         );
 
         // Increment latest index
-        latestIndices[bT] += 1;
+        latestIndices[Tb] += 1;
     }
 
-    function updateCollateral(
-        address bT,
+    function changeAc(
+        address Tb,
         uint index,
-        uint collateralAmount
+        uint Ac
     )
         public
     {
-        borrowRequest memory request = borrowRequests[bT][index];
+        request memory thisRequest = requests[Tb][index];
 
-        require(msg.sender == request.borrower);
+        require(msg.sender == thisRequest.Pc);
 
-        if (collateralAmount < request.collateralAmount) {
-            // collateralAmount is decreased
-            uint dec = request.collateralAmount - collateralAmount;
-            require(ERC20Interface(request.cT).transfer(msg.sender, dec));
-            borrowRequests[bT][index].collateralAmount -= dec;
-        } else {
-            // collateralAmount is kept same or increased
-            require(ERC20Interface(request.cT).transferFrom(msg.sender, this, uint(dif)));
+        if (Ac < thisRequest.Ac) {
+            // Ac is decreased
+            uint dec = thisRequest.Ac - Ac;
+            require(StandardToken(thisRequest.Tc).transfer(msg.sender, dec));
+            requests[Tb][index].Ac -= dec;
+        } else if (Ac > thisRequest.Ac) {
+            // Ac is increased
+            uint inc = Ac - thisRequest.Ac;
+            require(StandardToken(thisRequest.Tc).transferFrom(msg.sender, this, inc));
+            requests[Tb][index].Ac += inc;
         }
     }
 
-    function cancelBorrowRequest(
-        address bT,
+    function cancelRequest(
+        address Tb,
         uint index
     )
         public
     {
-        address borrower = borrowRequests[bT][index].borrower;
-        require(msg.sender == borrower);
-        delete borrowRequests[bT][index];
+        address Pc = requests[Tb][index].Pc;
+        // if (msg.sender != Pc) {
+        //     return;
+        // }
+        require(msg.sender == Pc);
+        delete requests[Tb][index];
     }
 
-    function createAgreement(
-        address bT,
+    function acceptRequest(
+        address Tb,
         uint index,
         uint incentivization
     )
         public
     {
-        borrowRequest memory request = borrowRequests[bT][index];
+        request memory thisRequest = requests[Tb][index];
 
+        // incentivization has to be smaller than collateral amount
+        require(thisRequest.Ac > incentivization);
 
+        // latest auction index for DutchX auction
+        uint num; uint den;
+        (num, den) = getRatioOfPricesFromDX(Tb, Tc);
 
-        require(ERC20Interface(bT).transferFrom(msg.sender, request.borrower, request.amount));
+        // Value of collateral might have decreased before agreement created
+        // Only borrow requests with collateral at least 3x are accepted
+        // This is to protect the requester from forced liqudiation
+
+        require(thisRequest.Ac >= thisRequest.Ab * AGREEMENT_COLLATERAL * num / den);
+        // if (thisRequest.Ac < thisRequest.Ab * AGREEMENT_COLLATERAL * num / den) {
+        //     Log('R1',1);
+        // }
+
+        require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab));
+        // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab)) {
+        //     Log('R2',1);
+        // }
 
         address agreement = new LendingAgreement(
             msg.sender,
-            request.borrower,
-            request.cT,
-            request.bT,
-            request.collateralAmount,
-            request.amount,
-            request.paybackTime,
-            request.interest,
+            thisRequest.Pc,
+            thisRequest.Tc,
+            thisRequest.Tb,
+            thisRequest.Ac,
+            thisRequest.Ab,
+            thisRequest.returnTime,
             incentivization
         );
 
-        ERC20Interface(request.cT).transfer(agreement, request.collateralAmount);
+        require(StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac));
+        // if (!StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac)) {
+        //     Log('R3',1);
+        // }
+
+        delete requests[Tb][index];
     }
+
+    // @dev outputs a price in units [token2]/[token1]
+    function getRatioOfPricesFromDX(
+        address token1,
+        address token2
+    )
+        public
+        view
+        returns (uint num, uint den)
+    {
+        uint lAI = DX(dx).getAuctionIndex(token1, token2);
+        (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+    }
+
+    event Log(
+        string l,
+        uint n
+    );
+
+    event LogAddress(
+        string l,
+        address a
+    );
 }

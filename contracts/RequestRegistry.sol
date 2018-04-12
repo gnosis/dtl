@@ -3,6 +3,7 @@ pragma solidity ^0.4.19;
 import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
 import "./DX.sol";
 import "./LendingAgreement.sol";
+import "./Proxy.sol";
 
 contract RequestRegistry {
 
@@ -23,8 +24,9 @@ contract RequestRegistry {
         uint den;
     }
 
-    bool isInitialised;
     address dx;
+    address ethToken;
+    address lendingAgreement;
 
     // token => index => request
     mapping (address => mapping (uint => request)) public requests;
@@ -32,25 +34,16 @@ contract RequestRegistry {
     mapping (address => uint) public latestIndices;
 
     function RequestRegistry(
-        address _dx
+        address _dx,
+        address _ethToken,
+        address _lendingAgreement
     )
         public
     {
         dx = _dx;
+        ethToken = _ethToken;
+        lendingAgreement = _lendingAgreement;
     }
-
-    function setupRequestRegistry(
-        address _dx
-    )
-        public
-    {
-        require(!isInitialised);
-
-        dx = _dx;
-
-        isInitialised = true;
-    }
-
 
     // For the purposes of this contract:
     // Tc = collateral token
@@ -148,7 +141,7 @@ contract RequestRegistry {
 
         // latest auction index for DutchX auction
         uint num; uint den;
-        (num, den) = getRatioOfPricesFromDX(Tb, Tc);
+        (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.Tc);
 
         // Value of collateral might have decreased before agreement created
         // Only borrow requests with collateral at least 3x are accepted
@@ -164,7 +157,11 @@ contract RequestRegistry {
         //     Log('R2',1);
         // }
 
-        address agreement = new LendingAgreement(
+        address agreement = new Proxy(lendingAgreement);
+
+        LendingAgreement(agreement).setupLendingAgreement(
+            dx,
+            ethToken,
             msg.sender,
             thisRequest.Pc,
             thisRequest.Tc,

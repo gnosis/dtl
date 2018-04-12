@@ -24,4 +24,28 @@ contract DX {
     {
     	return 1;
     }
+
+    function depositAndSell(
+        address sellToken,
+        address buyToken,
+        uint amount
+    )
+        external
+        returns (uint newBal, uint auctionIndex, uint newSellerBal)
+    {
+
+    }
+
+    function claimAndWithdraw(
+        address sellToken,
+        address buyToken,
+        address user,
+        uint auctionIndex,
+        uint amount
+    )
+        external
+        returns (uint returned, uint frtsIssued, uint newBal)
+    {
+        
+    }
 }

@@ -2,20 +2,22 @@
 
 const Math = artifacts.require('Math')
 const StandardToken = artifacts.require('StandardToken')
-const TokenWithConstr = artifacts.require('TokenWithConstr')
+const ERC20 = artifacts.require('ERC20')
 
-const DutchExchangeInterface = artifacts.require('DutchExchangeInterface')
+const DX = artifacts.require('DX')
 const RequestRegistry = artifacts.require('RequestRegistry')
 const LendingAgreement = artifacts.require('LendingAgreement')
 
 module.exports = function deploy(deployer, networks, accounts) {
   deployer.deploy(Math)
 
-    .then(() => deployer.link(Math, [StandardToken, TokenWithConstr]))
+    .then(() => deployer.link(Math, [StandardToken, ERC20]))
 
-    .then(() => deployer.deploy(TokenWithConstr, 100000 * (10 ** 18)))
+    .then(() => deployer.deploy(ERC20, [accounts[0], accounts[1], accounts[2]]))
 
-    .then(() => deployer.deploy(DutchExchangeInterface))
+    .then(() => deployer.deploy(DX))
 
-    .then(() => deployer.deploy(RequestRegistry, DutchExchangeInterface.address))
+    .then(() => deployer.deploy(LendingAgreement))
+
+    .then(() => deployer.deploy(RequestRegistry, DX.address, ERC20.address, LendingAgreement.address))
 }

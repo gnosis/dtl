@@ -1,6 +1,7 @@
 pragma solidity ^0.4.19;
 
 import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
+import "./DX.sol";
 
 contract LendingAgreement {
 
@@ -21,8 +22,8 @@ contract LendingAgreement {
     // auctionIndex in DX that holds funds
     uint public auctionIndex;
 
-    // > Constructor
-    function LendingAgreement(
+    // > setupLendingAgreement
+    function setupLendingAgreement(
         address _dx,
         address _ethToken,
         address _Pb,
@@ -116,7 +117,7 @@ contract LendingAgreement {
         } else {
             // get price of Tc in Tb
             uint num; uint den;
-            (num, den) = getPriceInPastAuction(Tb, Tc);
+            (num, den) = getRatioOfPricesFromDX(Tb, Tc);
 
             // if value of collateral amount is less than twice of amount borrowed
             if (Ac < Ab * MINIMUM_COLLATERAL * num / den) {
@@ -152,5 +153,16 @@ contract LendingAgreement {
     {
         uint lAI = DX(dx).getAuctionIndex(token1, token2);
         (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+    }
+
+    function max(
+        uint a,
+        uint b
+    )
+        public
+        pure
+        returns (uint)
+    {
+        return (a < b) ? b : a;
     }
 }

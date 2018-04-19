@@ -7,6 +7,8 @@ contract LendingAgreement {
 
     uint constant MINIMUM_COLLATERAL = 2;
 
+    address masterCopy;
+
     address public dx;
     address public ethToken;
 
@@ -37,6 +39,7 @@ contract LendingAgreement {
     )
         public
     {
+        // TODO: CANNOT BE CALLED TWICE
         dx = _dx;
         ethToken = _ethToken;
 
@@ -95,7 +98,7 @@ contract LendingAgreement {
         }
     }
 
-    function returnTbAndClaimAc()
+    function returnAbAndClaimAc()
         public
     {
         // Should allow Pc to return Tb and get back Tc
@@ -165,4 +168,6 @@ contract LendingAgreement {
     {
         return (a < b) ? b : a;
     }
+
+    event Log(string l, uint n);
 }

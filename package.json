@@ -11,6 +11,7 @@
     "truffle": "^4.0.6"
   },
   "devDependencies": {
+    "@digix/tempo": "^0.2.0",
     "decode-eth": "^0.0.2"
   },
   "scripts": {

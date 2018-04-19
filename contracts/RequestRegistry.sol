@@ -176,6 +176,7 @@ contract RequestRegistry {
         uint incentivization
     )
         public
+        returns (address newProxyForAgreement)
     {
         request memory thisRequest = requests[Tb][index];
 
@@ -201,27 +202,29 @@ contract RequestRegistry {
         //     Log('R2',1);
         // }
 
-        // address agreement = new Proxy(lendingAgreement);
+        newProxyForAgreement = new Proxy(lendingAgreement);
 
-        // LendingAgreement(agreement).setupLendingAgreement(
-        //     dx,
-        //     ethToken,
-        //     msg.sender,
-        //     thisRequest.Pc,
-        //     thisRequest.Tc,
-        //     thisRequest.Tb,
-        //     thisRequest.Ac,
-        //     thisRequest.Ab,
-        //     thisRequest.returnTime,
-        //     incentivization
-        // );
+        LendingAgreement(newProxyForAgreement).setupLendingAgreement(
+            dx,
+            ethToken,
+            msg.sender,
+            thisRequest.Pc,
+            thisRequest.Tc,
+            thisRequest.Tb,
+            thisRequest.Ac,
+            thisRequest.Ab,
+            thisRequest.returnTime,
+            incentivization
+        );
 
-        // require(StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac));
-        // if (!StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac)) {
+        require(StandardToken(thisRequest.Tc).transfer(newProxyForAgreement, thisRequest.Ac));
+        // if (!StandardToken(thisRequest.Tc).transfer(newProxyForAgreement, thisRequest.Ac)) {
         //     Log('R3',1);
         // }
 
         delete requests[Tb][index];
+
+        NewAgreement(newProxyForAgreement);
     }
 
     // @dev outputs a price in units [token2]/[token1]
@@ -257,4 +260,6 @@ contract RequestRegistry {
         string l,
         address a
     );
+
+    event NewAgreement(address agreement);
 }

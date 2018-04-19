@@ -7,12 +7,15 @@
     "test": "test"
   },
   "dependencies": {
-    "truffle": "^4.0.6",
-    "@gnosis.pm/gnosis-core-contracts": "^1.0.2"
+    "@gnosis.pm/gnosis-core-contracts": "^1.0.2",
+    "truffle": "^4.0.6"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "decode-eth": "^0.0.2"
+  },
   "scripts": {
-    "test": "mocha"
+    "test": "mocha",
+    "decode": "node ./node_modules/decode-eth/main.js"
   },
   "author": "",
   "license": "ISC"

@@ -48,35 +48,56 @@ contract RequestRegistry {
     // For the purposes of this contract:
     // Tc = collateral token
 
+    function getNow()
+        public
+        view
+        returns (uint)
+    {
+        return now;
+    }
+
     /// @dev post a new borrow request
     /// @param Tc - 
     function postRequest(
         address Tc,
         address Tb,
+        uint Ac,
         uint Ab,
         uint returnTime
     )
         public
     {
-        // get ratio of prices from DutchX
-        uint num; uint den;
-        (num, den) = getRatioOfPricesFromDX(Tb, Tc);
-
-        // uint Ac = Ab * REQUEST_COLLATERAL * TPbrice / TPcrice;
-        uint Ac = Ab * REQUEST_COLLATERAL * num / den;
-
-        // Transfer collateral
-        require(StandardToken(Tc).transferFrom(msg.sender, this, Ac));
-
-        // if (! StandardToken(Tc).transferFrom(msg.sender, this, Ac)) {
-        //     Log('Not working', 1);
+        // R1
+        require(returnTime > now);
+        // if (!(returnTime > now)) {
+        //     Log('R1', 1);
         //     return;
         // }
+
+        // get ratio of prices from DutchX
+        uint num; uint den;
+
+        // Reverts if pair is not traded on DX
+        (num, den) = getRatioOfPricesFromDX(Tb, Tc);
+
+        // Allow user to post more collateral than is required
+        Ac = max(Ac, Ab * REQUEST_COLLATERAL * num / den);
+
+        // R2: Transfer collateral
+        require(StandardToken(Tc).transferFrom(msg.sender, this, Ac));
+        // if (!StandardToken(Tc).transferFrom(msg.sender, this, Ac)) {
+        //     Log('R2', 1);
+        //     return;
+        // }
+
+        uint bal0 = StandardToken(Tc).balanceOf(msg.sender);
+
+        Log('bal postRequest', bal0);
 
         uint latestIndex = latestIndices[Tb];
 
         // Create borrow request
-        requests[Tb][latestIndex + 1] = request(
+        requests[Tb][latestIndex] = request(
             msg.sender,
             Tc,
             Tb,
@@ -119,11 +140,33 @@ contract RequestRegistry {
     )
         public
     {
-        address Pc = requests[Tb][index].Pc;
-        // if (msg.sender != Pc) {
+        request memory thisRequest = requests[Tb][index];
+
+        require(msg.sender == thisRequest.Pc);
+        // if (!(msg.sender == thisRequest.Pc)) {
+        //     Log('R1', 1);
         //     return;
         // }
-        require(msg.sender == Pc);
+
+        LogAddress('Pc', thisRequest.Pc);
+        Log('Ac', thisRequest.Ac);
+
+        uint bal0 = StandardToken(thisRequest.Tc).balanceOf(thisRequest.Pc);
+
+        Log('bal0', bal0);
+
+        // Return collateral
+        require(StandardToken(thisRequest.Tc).transfer(thisRequest.Pc, thisRequest.Ac));
+        // if (!StandardToken(thisRequest.Tc).transfer(thisRequest.Pc, thisRequest.Ac)) {
+        //     Log('R2', 1);
+        //     return;
+        // }
+
+        uint bal = StandardToken(thisRequest.Tc).balanceOf(thisRequest.Pc);
+
+        Log('balance', bal);
+
+        // Delete request
         delete requests[Tb][index];
     }
 
@@ -137,6 +180,7 @@ contract RequestRegistry {
         request memory thisRequest = requests[Tb][index];
 
         // incentivization has to be smaller than collateral amount
+        // also disables accepting uninitialized requests
         require(thisRequest.Ac > incentivization);
 
         // latest auction index for DutchX auction
@@ -157,22 +201,22 @@ contract RequestRegistry {
         //     Log('R2',1);
         // }
 
-        address agreement = new Proxy(lendingAgreement);
+        // address agreement = new Proxy(lendingAgreement);
 
-        LendingAgreement(agreement).setupLendingAgreement(
-            dx,
-            ethToken,
-            msg.sender,
-            thisRequest.Pc,
-            thisRequest.Tc,
-            thisRequest.Tb,
-            thisRequest.Ac,
-            thisRequest.Ab,
-            thisRequest.returnTime,
-            incentivization
-        );
+        // LendingAgreement(agreement).setupLendingAgreement(
+        //     dx,
+        //     ethToken,
+        //     msg.sender,
+        //     thisRequest.Pc,
+        //     thisRequest.Tc,
+        //     thisRequest.Tb,
+        //     thisRequest.Ac,
+        //     thisRequest.Ab,
+        //     thisRequest.returnTime,
+        //     incentivization
+        // );
 
-        require(StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac));
+        // require(StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac));
         // if (!StandardToken(thisRequest.Tc).transfer(agreement, thisRequest.Ac)) {
         //     Log('R3',1);
         // }
@@ -191,6 +235,17 @@ contract RequestRegistry {
     {
         uint lAI = DX(dx).getAuctionIndex(token1, token2);
         (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+    }
+
+    function max(
+        uint a,
+        uint b
+    )
+        public
+        pure
+        returns (uint)
+    {
+        return (a < b) ? b : a;
     }
 
     event Log(

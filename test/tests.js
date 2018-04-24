@@ -183,7 +183,7 @@ contract('DTL', async (accounts) => {
 		const TbBalBefore = (await Tb.balanceOf(Pc)).toNumber()
 
 		let agreement
-		await RR.acceptRequest(Tb.address, latestIndex - 1, 10 ** 15, { from: Pb })
+		await RR.acceptRequest(Tb.address, latestIndex - 1, 6000, { from: Pb })
 			.then(res => {
 				// Expectation: agreement is last log
 				let length = res.logs.length

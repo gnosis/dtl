@@ -46,12 +46,22 @@ contract RequestRegistry {
         public
     {
         // R1
+        require(Tc != Tb);
+
+        // R2
+        require(Ab > 0);
+
+        // R3
         require(returnTime > now);
         // if (!(returnTime > now)) {
         //     Log('returnTime', returnTime);
         //     Log('now', now);
         //     return;
         // }
+
+        // Token pair should be initialized
+        // (otherwise it could never get accepted)
+        require(DX(dx).getAuctionIndex(Tc, Tb) > 0);
 
         uint latestIndex = latestIndices[Tb];
 
@@ -97,13 +107,9 @@ contract RequestRegistry {
         uint num; uint den;
         (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.Tc);
 
-        uint Ac = thisRequest.Ab * AGREEMENT_COLLATERAL * num / den;
+        uint Ac = mul(mul(thisRequest.Ab, AGREEMENT_COLLATERAL), num) / den;
 
-        // incentivization has to be smaller than collateral amount
-        // also disables accepting uninitialized requests
-
-        require(Ac > incentivization);
-
+        // Perform lending
         require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab));
         // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab)) {
         //     Log('R2',1);
@@ -123,7 +129,7 @@ contract RequestRegistry {
             incentivization
         );
 
-
+        // Transfer collateral from Pc to proxy
         require(StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac));
         // if (!StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac)) {
         //     Log('R3',1);
@@ -144,6 +150,10 @@ contract RequestRegistry {
         returns (uint num, uint den)
     {
         uint lAI = DX(dx).getAuctionIndex(token1, token2);
+        // getPriceInPastAuction works the following way:
+        // if token1 == token2, it outputs (1, 1).
+        // if they are not equal, it outputs price in units [token2]/[token1]
+        // requires that token pair to have been initialized
         (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
     }
 
@@ -156,6 +166,23 @@ contract RequestRegistry {
         returns (uint)
     {
         return (a < b) ? b : a;
+    }
+
+    function safeToMul(uint a, uint b)
+        public
+        pure
+        returns (bool)
+    {
+        return b == 0 || a * b / b == a;
+    }
+
+    function mul(uint a, uint b)
+        public
+        pure
+        returns (uint)
+    {
+        require(safeToMul(a, b));
+        return a * b;
     }
 
     event Log(

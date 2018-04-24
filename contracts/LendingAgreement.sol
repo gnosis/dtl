@@ -10,6 +10,7 @@ contract LendingAgreement {
     address masterCopy;
 
     address public dx;
+    address public RR;
 
     address public Pb;
     address public Pc;
@@ -22,8 +23,6 @@ contract LendingAgreement {
 
     // auctionIndex in DX that holds funds
     uint public auctionIndex;
-
-    address public RR;
 
     // > setupLendingAgreement
     function setupLendingAgreement(
@@ -41,10 +40,9 @@ contract LendingAgreement {
     {
         // R1: fn cannot be called twice
         require(dx == 0x0);
-        // R2: 
-        require(_dx != 0x0);
 
         dx = _dx;
+        RR = msg.sender;
 
         Pb = _Pb;
         Pc = _Pc;
@@ -54,8 +52,6 @@ contract LendingAgreement {
         Ab = _Ab;
         returnTime = _returnTime;
         incentivization = _incentivization;
-
-        RR = msg.sender;
     }
 
     function changePb(
@@ -86,6 +82,7 @@ contract LendingAgreement {
         if (_Ac <= Ac) {
             // Ac is intended to be decreased
             if (Ab == 0) {
+                // Return collateral to Pc and destroy contract
                 require(StandardToken(Tc).transfer(msg.sender, Ac));
                 selfdestruct(0x0);
             } else {
@@ -94,15 +91,18 @@ contract LendingAgreement {
                 (num, den) = getRatioOfPricesFromDX(Tb, Tc);
 
                 // new collateral amount will be:
-                uint newAc = max(Ab * MINIMUM_COLLATERAL * num / den, _Ac);
+                uint minimum = mul(mul(Ab, MINIMUM_COLLATERAL), num) / den;
+                uint newAc = max(minimum, _Ac);
 
                 if (newAc < Ac) {
+                    // Cannot underflow because of above assumption
                     require(StandardToken(Tc).transfer(msg.sender, Ac - newAc));
                     Ac = newAc;
                 }
             }
         } else if (_Ac > Ac) {
             // Ac is increased
+            // Cannot underflow because of above assumption
             require(StandardToken(Tc).transferFrom(msg.sender, this, _Ac - Ac));
             Ac = _Ac;
         }
@@ -116,6 +116,7 @@ contract LendingAgreement {
         // Never return more than was borrowed
         amount = min(amount, Ab);
         require(StandardToken(Tb).transferFrom(Pc, Pb, amount));
+        // Cannot underflow because of above assignment
         Ab -= amount;
     }
 
@@ -143,17 +144,18 @@ contract LendingAgreement {
             (num, den) = getRatioOfPricesFromDX(Tb, Tc);
 
             // if value of collateral amount is less than twice of amount borrowed
-            require(Ac < Ab * MINIMUM_COLLATERAL * num / den); 
-            // {
+            if (Ac < mul(mul(Ab, MINIMUM_COLLATERAL), num) / den) {
                 // liquidate
 
                 if (msg.sender == Pb) {
                     (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac);
                 } else {
-                    require(StandardToken(Tc).transfer(msg.sender, incentivization));
-                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac - incentivization);
+                    uint incentive = incentivization == 0 ? incentive : Ac / incentivization;
+                    require(StandardToken(Tc).transfer(msg.sender, incentive));
+                    // Cannot underflow because in by line above, Ac > incentive
+                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac - incentive);
                 }
-            // }
+            }
         }
     }
 
@@ -198,6 +200,23 @@ contract LendingAgreement {
         returns (uint)
     {
         return (a > b) ? b : a;
+    }
+
+    function safeToMul(uint a, uint b)
+        public
+        pure
+        returns (bool)
+    {
+        return b == 0 || a * b / b == a;
+    }
+
+    function mul(uint a, uint b)
+        public
+        pure
+        returns (uint)
+    {
+        require(safeToMul(a, b));
+        return a * b;
     }
 
     event Log(string l, uint n);

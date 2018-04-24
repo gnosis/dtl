@@ -1,4 +1,4 @@
-const { wait } = require('@digix/tempo');
+const { wait } = require('@digix/tempo')(web3)
 
 const {
   eventWatcher,
@@ -10,40 +10,37 @@ const {
 
 const RequestRegistry = artifacts.require('RequestRegistry')
 const LendingAgreement = artifacts.require('LendingAgreement')
+const dx = artifacts.require('DX')
 
 const StandardToken = artifacts.require('StandardToken')
 const ERC20 = artifacts.require('ERC20')
 
 const ONE = 10 ** 18
 
+let count = 0
+
 contract('DTL', async (accounts) => {
 	const Pc = accounts[0]
 	const Pb = accounts[1]
 
 	let RR
+	// As we delete and create new agreements in the tests, this one always stored the latest:
 	let LA
 	let Tc
 	let Tb
+	let DX
 
 	before(async () => {
 
   		RR = await RequestRegistry.deployed()
 		Tc = await ERC20.deployed()
 		Tb = await ERC20.new([Pb, Pc, accounts[2]])
-
+		DX = await dx.deployed()
 	})
 
 	// Request Registry tests
 	it('should create a req', async () => {
 		await createRequest(ONE)
-	})
-
-	it('should increase Ac for a req', async () => {
-		await changeReqAc(10 * ONE)
-	})
-
-	it('should decrease Ac for a req', async () => {
-		await changeReqAc(8 * ONE)
 	})
 
 	it('should cancel a req', async () => {
@@ -77,71 +74,113 @@ contract('DTL', async (accounts) => {
 	})
 
 	it('should liquidate and claim as Pb after returnTime', async () => {
+		await createRequest(ONE)
+		await createAgreement(ONE)
 
-		await liquidate(Pb)
+		const now = web3.eth.getBlock('latest').timestamp
+		const returnTime = (await LA.returnTime()).toNumber()
+		await wait(returnTime - now + 100)
+		await LA.liquidate({ from: Pb })
+		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+
+		// We simulate a trade by adding balance for the DX:
+		await Tb.transfer(DX.address, 3 * ONE)
+		await LA.claimFunds({ from: Pb })
+
+		// Check Pb received liquidated collateral
+		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
+		assert.equal(TbBalBefore + 3 * ONE, TbBalAfter)
 	})
 
 	it('should liquidate and claim as Pb due to insufficient collateral', async () => {
-		await liquidate(Pb)
+		await createRequest(ONE)
+		await createAgreement(ONE)
+
+		await DX.changeMarketPrice(4)
+
+		await LA.liquidate({ from: Pb })
+		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+
+		// We simulate a trade by adding balance for the DX:
+		await Tb.transfer(DX.address, 3 * ONE)
+		await LA.claimFunds({ from: Pb })
+
+		// Check Pb received liquidated collateral
+		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
+		assert.equal(TbBalBefore + 3 * ONE, TbBalAfter)
 	})
 
 	it('should reward non Pb with incentivization, liquidate and claim due to insufficient collateral', async () => {
-		await liquidate(accounts[2])
+		// We have to reset market price to 2
+		await DX.changeMarketPrice(2)
+		await createRequest(ONE)
+		await createAgreement(ONE)
+
+		await DX.changeMarketPrice(4)
+		const TcBalBefore = (await Tc.balanceOf(accounts[2])).toNumber()
+		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+
+		const inc = (await LA.incentivization()).toNumber()
+		
+		await LA.liquidate({ from: accounts[2] })
+
+		// We simulate a trade by adding balance for the DX:
+		await Tb.transfer(DX.address, 3 * ONE - 10 ** 15)
+		await LA.claimFunds({ from: Pb })
+
+		// Check incetivizer received part of collateral
+		const TcBalAfter = (await Tc.balanceOf(accounts[2])).toNumber()
+		assert.equal(TcBalBefore + 10 ** 15, TcBalAfter)
+
+		// Check Pb received liquidated collateral
+		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
+		assert.equal(TbBalBefore + 3 * ONE - 10 ** 15, TbBalAfter)
 	})
 
 	async function createRequest(Ab) {
-		const now = Math.round((new Date()).getTime() / 1000)
+		const now = web3.eth.getBlock('latest').timestamp
 		const sixHrs = 60 * 60 * 6
-		await Tc.approve(RR.address, 8 * Ab, { from: Pc })
 		const latestIndex = (await RR.latestIndices(Tb.address)).toNumber()
-		await RR.postRequest(Tc.address, Tb.address, 0, Ab, now + sixHrs, { from: Pc })
+		// We multiply by latestIndex for calls after wait() to scuceed
+		const returnTime = now + (latestIndex + 1) * sixHrs
+		await RR.postRequest(Tc.address, Tb.address, Ab, returnTime, { from: Pc })
 
 		// Check req was created
 		const thisRequest = await RR.requests(Tb.address, latestIndex)
-		for (let i = 3; i < 6; i++) {
+		for (let i = 2; i < 4; i++) {
 			thisRequest[i] = thisRequest[i].toNumber()
 		}
-		const a = [Pc, Tc.address, Tb.address, 8 * Ab, Ab, now + sixHrs]
+		const a = [Pc, Tc.address, Ab, returnTime]
 		assert.deepEqual(thisRequest, a)
 
 		// Check latest index was incremented
 		const latestIndexAfter = (await RR.latestIndices(Tb.address)).toNumber()
 		assert.equal(latestIndex + 1, latestIndexAfter)
+
+		count++
 	}
 
 	async function cancelRequest() {
 		await RR.cancelRequest(Tb.address, 0, { from: Pc })
 
-		// Check Ac was returned
-		const bal = (await Tc.balanceOf(Pc)).toNumber()
-		assert.equal(bal, 100 * ONE)
-
 		// Check request was deleted
 		const thisRequest = await RR.requests(Tb.address, 0)
-		for (let i = 3; i < 6; i++) {
+		for (let i = 2; i < 4; i++) {
 			thisRequest[i] = thisRequest[i].toNumber()
 		}
-		for (let i = 0; i < 6; i++) {
+		for (let i = 0; i < 4; i++) {
 			// request has been nulified
 			assert(thisRequest[i] == '0x0000000000000000000000000000000000000000' ||
 				thisRequest[i] == 0)
 		}
 	}
 
-	async function changeReqAc(Ac) {
-		await Tc.approve(RR.address, Ac, { from: Pc })
-		await RR.changeAc(Tb.address, 0, Ac, { from: Pc })
-
-		// Check Ac was changed
-		const thisRequest = await RR.requests(Tb.address, 0)
-		const newAc = thisRequest[3].toNumber()
-
-		assert.equal(Ac, newAc)
-	}
-
 	async function createAgreement(Ab) {
+		await Tc.approve(RR.address, 6 * Ab, { from: Pc })
 		await Tb.approve(RR.address, Ab, { from: Pb })
 		const latestIndex = (await RR.latestIndices(Tb.address)).toNumber()
+
+		const TbBalBefore = (await Tb.balanceOf(Pc)).toNumber()
 
 		let agreement
 		await RR.acceptRequest(Tb.address, latestIndex - 1, 10 ** 15, { from: Pb })
@@ -156,8 +195,16 @@ contract('DTL', async (accounts) => {
 		
 		// Check agreement was created correctly
 		const returnTime = (await LA.returnTime()).toNumber()
-		const now = Math.round((new Date()).getTime() / 1000)
+		const now = web3.eth.getBlock('latest').timestamp
 		assert(now < returnTime)
+
+		// Check collateral was provided
+		const TcBal = (await Tc.balanceOf(LA.address)).toNumber()
+		assert.equal(TcBal, 6 * Ab)
+
+		// Check Tb was provided
+		const TbBalAfter = (await Tb.balanceOf(Pc)).toNumber()
+		assert.equal(TbBalBefore + Ab, TbBalAfter)
 	}
 
 	async function changePb() {
@@ -196,7 +243,7 @@ contract('DTL', async (accounts) => {
 		const Ac = (await LA.Ac()).toNumber()
 
 		await Tb.approve(LA.address, Ab, { from: Pc })
-		await LA.returnAbAndClaimAc()
+		await LA.returnTbAndChangeAc(Ab, 0)
 
 		// Check Ab has been returned
 		const balAbAfter = (await Tb.balanceOf(Pc)).toNumber()
@@ -207,7 +254,7 @@ contract('DTL', async (accounts) => {
 		assert.equal(balAcBefore + Ac, balAcAfter)
 	}
 
-	async function liquidate() {
-
+	async function liquidate(account) {
+		await LA.liquidate()
 	}
 })

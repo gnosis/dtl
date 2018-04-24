@@ -19,5 +19,5 @@ module.exports = function deploy(deployer, networks, accounts) {
 
     .then(() => deployer.deploy(LendingAgreement))
 
-    .then(() => deployer.deploy(RequestRegistry, DX.address, ERC20.address, LendingAgreement.address))
+    .then(() => deployer.deploy(RequestRegistry, DX.address, LendingAgreement.address))
 }

@@ -1,6 +1,10 @@
 pragma solidity ^0.4.19;
 
+import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
+
 contract DX {
+
+    uint num = 2;
 
 	function getPriceInPastAuction(
 		address sellToken,
@@ -11,7 +15,13 @@ contract DX {
         view
         returns (uint, uint)
     {
-    	return (2, 1);
+    	return (num, 1);
+    }
+
+    function changeMarketPrice(uint a)
+        public
+    {
+        num = a;
     }
 
 	function getAuctionIndex(
@@ -33,7 +43,7 @@ contract DX {
         external
         returns (uint newBal, uint auctionIndex, uint newSellerBal)
     {
-
+        
     }
 
     function claimAndWithdraw(
@@ -46,6 +56,7 @@ contract DX {
         external
         returns (uint returned, uint frtsIssued, uint newBal)
     {
-        
+        uint bal = StandardToken(buyToken).balanceOf(this);
+        require(StandardToken(buyToken).transfer(user, bal));
     }
 }

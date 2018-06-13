@@ -3,8 +3,9 @@ pragma solidity ^0.4.19;
 import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
 import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
 import "../test/DX.sol";
+import "./MathSimple.sol";
 
-contract LendingAgreement is Proxied {
+contract LendingAgreement is Proxied, MathSimple {
 
     uint constant MINIMUM_COLLATERAL = 2;
 
@@ -24,6 +25,9 @@ contract LendingAgreement is Proxied {
 
     // auctionIndex in DX that holds funds
     uint public auctionIndex;
+
+    event Log(string l, uint n);
+    event LogAddress(string l, address a);
 
     // > setupLendingAgreement
     function setupLendingAgreement(
@@ -186,40 +190,4 @@ contract LendingAgreement is Proxied {
         uint lAI = DX(dx).getAuctionIndex(token1, token2);
         (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
     }
-
-    function max(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        return (a < b) ? b : a;
-    }
-
-    function min(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        return (a > b) ? b : a;
-    }
-
-    function safeToMul(uint a, uint b)
-        public
-        pure
-        returns (bool)
-    {
-        return b == 0 || a * b / b == a;
-    }
-
-    function mul(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        require(safeToMul(a, b));
-        return a * b;
-    }
-
-    event Log(string l, uint n);
-    event LogAddress(string l, address a);
 }

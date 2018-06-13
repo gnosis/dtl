@@ -1,11 +1,12 @@
 pragma solidity ^0.4.19;
 
 import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
+import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
 import "../test/DX.sol";
 import "./LendingAgreement.sol";
-import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
+import "./MathSimple.sol";
 
-contract RequestRegistry {
+contract RequestRegistry is MathSimple {
 
     uint constant AGREEMENT_COLLATERAL = 3;
 
@@ -24,6 +25,18 @@ contract RequestRegistry {
     mapping (address => mapping (uint => request)) public requests;
     // token => latestIndex
     mapping (address => uint) public latestIndices;
+
+    event Log(
+        string l,
+        uint n
+    );
+
+    event LogAddress(
+        string l,
+        address a
+    );
+
+    event NewAgreement(address agreement);
 
     function RequestRegistry(
         address _dx,
@@ -156,44 +169,4 @@ contract RequestRegistry {
         // requires that token pair to have been initialized
         (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
     }
-
-    function max(
-        uint a,
-        uint b
-    )
-        public
-        pure
-        returns (uint)
-    {
-        return (a < b) ? b : a;
-    }
-
-    function safeToMul(uint a, uint b)
-        public
-        pure
-        returns (bool)
-    {
-        return b == 0 || a * b / b == a;
-    }
-
-    function mul(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        require(safeToMul(a, b));
-        return a * b;
-    }
-
-    event Log(
-        string l,
-        uint n
-    );
-
-    event LogAddress(
-        string l,
-        address a
-    );
-
-    event NewAgreement(address agreement);
 }

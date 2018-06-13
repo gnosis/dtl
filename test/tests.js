@@ -1,11 +1,8 @@
 const { wait } = require('@digix/tempo')(web3)
 
 const {
-  eventWatcher,
   log: utilsLog,
   assertRejects,
-  gasLogger,
-  gasLogWrapper,
 } = require('./utils')
 
 const RequestRegistry = artifacts.require('RequestRegistry')

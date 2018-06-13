@@ -1,9 +1,10 @@
 pragma solidity ^0.4.19;
 
-import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
-import "./DX.sol";
+import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
+import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
+import "../test/DX.sol";
 
-contract LendingAgreement {
+contract LendingAgreement is Proxied {
 
     uint constant MINIMUM_COLLATERAL = 2;
 

@@ -1,9 +1,9 @@
 pragma solidity ^0.4.19;
 
-import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
-import "./DX.sol";
+import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
+import "../test/DX.sol";
 import "./LendingAgreement.sol";
-import "./Proxy.sol";
+import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
 
 contract RequestRegistry {
 

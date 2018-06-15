@@ -11,9 +11,9 @@ contract RequestRegistry is MathSimple {
     uint constant AGREEMENT_COLLATERAL = 3;
 
     struct request {
-        address Pc;
-        address Tc;
-        uint Ab;
+        address borrower;
+        address collateralToken;
+        uint borrowedAmount;
         uint returnTime;
     }
 
@@ -49,20 +49,20 @@ contract RequestRegistry is MathSimple {
     }
 
     /// @dev post a new borrow request
-    /// @param Tc - 
+    /// @param collateralToken - 
     function postRequest(
-        address Tc,
+        address collateralToken,
         address Tb,
-        uint Ab,
+        uint borrowedAmount,
         uint returnTime
     )
         public
     {
         // R1
-        require(Tc != Tb);
+        require(collateralToken != Tb);
 
         // R2
-        require(Ab > 0);
+        require(borrowedAmount > 0);
 
         // R3
         require(returnTime > now);
@@ -74,15 +74,15 @@ contract RequestRegistry is MathSimple {
 
         // Token pair should be initialized
         // (otherwise it could never get accepted)
-        require(DutchExchange(dx).getAuctionIndex(Tc, Tb) > 0);
+        require(DutchExchange(dx).getAuctionIndex(collateralToken, Tb) > 0);
 
         uint latestIndex = latestIndices[Tb];
 
         // Create borrow request
         requests[Tb][latestIndex] = request(
             msg.sender,
-            Tc,
-            Ab,
+            collateralToken,
+            borrowedAmount,
             returnTime
         );
 
@@ -96,8 +96,8 @@ contract RequestRegistry is MathSimple {
     )
         public
     {
-        require(msg.sender == requests[Tb][index].Pc);
-        // if (!(msg.sender == requests[Tb][index].Pc)) {
+        require(msg.sender == requests[Tb][index].borrower);
+        // if (!(msg.sender == requests[Tb][index].borrower)) {
         //     Log('R1', 1);
         //     return;
         // }
@@ -118,13 +118,13 @@ contract RequestRegistry is MathSimple {
 
         // latest auction index for DutchX auction
         uint num; uint den;
-        (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.Tc);
+        (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.collateralToken);
 
-        uint Ac = mul(mul(thisRequest.Ab, AGREEMENT_COLLATERAL), num) / den;
+        uint Ac = mul(mul(thisRequest.borrowedAmount, AGREEMENT_COLLATERAL), num) / den;
 
         // Perform lending
-        require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab));
-        // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab)) {
+        require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.borrower, thisRequest.borrowedAmount));
+        // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.borrower, thisRequest.borrowedAmount)) {
         //     Log('R2',1);
         // }
 
@@ -133,18 +133,18 @@ contract RequestRegistry is MathSimple {
         LendingAgreement(newProxyForAgreement).setupLendingAgreement(
             dx,
             msg.sender,
-            thisRequest.Pc,
-            thisRequest.Tc,
+            thisRequest.borrower,
+            thisRequest.collateralToken,
             Tb,
             Ac,
-            thisRequest.Ab,
+            thisRequest.borrowedAmount,
             thisRequest.returnTime,
             incentivization
         );
 
-        // Transfer collateral from Pc to proxy
-        require(StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac));
-        // if (!StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac)) {
+        // Transfer collateral from borrower to proxy
+        require(StandardToken(thisRequest.collateralToken).transferFrom(thisRequest.borrower, newProxyForAgreement, Ac));
+        // if (!StandardToken(thisRequest.collateralToken).transferFrom(thisRequest.borrower, newProxyForAgreement, Ac)) {
         //     Log('R3',1);
         // }
 

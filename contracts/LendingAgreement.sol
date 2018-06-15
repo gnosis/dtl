@@ -2,7 +2,7 @@ pragma solidity ^0.4.19;
 
 import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
 import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
-import "../test/DX.sol";
+import "@gnosis.pm/dx-contracts/contracts/DutchExchange.sol";
 import "./MathSimple.sol";
 
 contract LendingAgreement is Proxied, MathSimple {
@@ -141,7 +141,7 @@ contract LendingAgreement is Proxied, MathSimple {
         if (now >= returnTime) {
             require(msg.sender == Pb);
             // liquidate by auctioning off on DutchX
-            (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac);
+            (,auctionIndex,) = DutchExchange(dx).depositAndSell(Tc, Tb, Ac);
             // require(StandardToken(Tc).transfer(Pb, Ac));
         } else {
             // get price of Tc in Tb
@@ -153,12 +153,12 @@ contract LendingAgreement is Proxied, MathSimple {
                 // liquidate
 
                 if (msg.sender == Pb) {
-                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac);
+                    (,auctionIndex,) = DutchExchange(dx).depositAndSell(Tc, Tb, Ac);
                 } else {
                     uint incentive = incentivization == 0 ? incentive : Ac / incentivization;
                     require(StandardToken(Tc).transfer(msg.sender, incentive));
                     // Cannot underflow because in by line above, Ac > incentive
-                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac - incentive);
+                    (,auctionIndex,) = DutchExchange(dx).depositAndSell(Tc, Tb, Ac - incentive);
                 }
             }
         }
@@ -168,7 +168,7 @@ contract LendingAgreement is Proxied, MathSimple {
         public
     {
         // passing in uint(-1) will mean all balances will be claimed
-        DX(dx).claimAndWithdraw(Tc, Tb, this, auctionIndex, uint(-1));
+        DutchExchange(dx).claimAndWithdraw(Tc, Tb, this, auctionIndex, uint(-1));
         uint bal = StandardToken(Tb).balanceOf(this);
         require(StandardToken(Tb).transfer(Pb, bal));
         if (bal > 0) {
@@ -187,7 +187,7 @@ contract LendingAgreement is Proxied, MathSimple {
         view
         returns (uint num, uint den)
     {
-        uint lAI = DX(dx).getAuctionIndex(token1, token2);
-        (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+        uint lAI = DutchExchange(dx).getAuctionIndex(token1, token2);
+        (num, den) = DutchExchange(dx).getPriceInPastAuction(token1, token2, lAI);
     }
 }

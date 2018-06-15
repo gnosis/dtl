@@ -2,7 +2,7 @@ pragma solidity ^0.4.19;
 
 import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
 import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
-import "../test/DX.sol";
+import "@gnosis.pm/dx-contracts/contracts/DutchExchange.sol";
 import "./LendingAgreement.sol";
 import "./MathSimple.sol";
 
@@ -74,7 +74,7 @@ contract RequestRegistry is MathSimple {
 
         // Token pair should be initialized
         // (otherwise it could never get accepted)
-        require(DX(dx).getAuctionIndex(Tc, Tb) > 0);
+        require(DutchExchange(dx).getAuctionIndex(Tc, Tb) > 0);
 
         uint latestIndex = latestIndices[Tb];
 
@@ -162,11 +162,11 @@ contract RequestRegistry is MathSimple {
         view
         returns (uint num, uint den)
     {
-        uint lAI = DX(dx).getAuctionIndex(token1, token2);
+        uint lAI = DutchExchange(dx).getAuctionIndex(token1, token2);
         // getPriceInPastAuction works the following way:
         // if token1 == token2, it outputs (1, 1).
         // if they are not equal, it outputs price in units [token2]/[token1]
         // requires that token pair to have been initialized
-        (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+        (num, den) = DutchExchange(dx).getPriceInPastAuction(token1, token2, lAI);
     }
 }

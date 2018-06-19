@@ -1,11 +1,8 @@
 const { wait } = require('@digix/tempo')(web3)
 
 const {
-  eventWatcher,
   log: utilsLog,
   assertRejects,
-  gasLogger,
-  gasLogWrapper,
 } = require('./utils')
 
 const RequestRegistry = artifacts.require('RequestRegistry')
@@ -20,21 +17,21 @@ const ONE = 10 ** 18
 let count = 0
 
 contract('DTL', async (accounts) => {
-	const Pc = accounts[0]
-	const Pb = accounts[1]
+	const borrower = accounts[0]
+	const lender = accounts[1]
 
-	let RR
+	let requestRegistry
 	// As we delete and create new agreements in the tests, this one always stored the latest:
-	let LA
-	let Tc
-	let Tb
+	let lendingAgreement
+	let collateralToken
+	let token
 	let DX
 
 	before(async () => {
 
-  		RR = await RequestRegistry.deployed()
-		Tc = await ERC20.deployed()
-		Tb = await ERC20.new([Pb, Pc, accounts[2]])
+  		requestRegistry = await RequestRegistry.deployed()
+		collateralToken = await ERC20.deployed()
+		token = await ERC20.new([lender, borrower, accounts[2]])
 		DX = await dx.deployed()
 	})
 
@@ -53,118 +50,118 @@ contract('DTL', async (accounts) => {
 		await createAgreement(ONE)
 	})
 
-	it('should change Pb of an agreement', async () => {
-		await changePb()
+	it('should change lender of an agreement', async () => {
+		await changeLender()
 	})
 
-	it('should change Pc of an agreement', async () => {
-		await changePc()
+	it('should change borrower of an agreement', async () => {
+		await changeBorrower()
 	})
 
-	it('should increase Ac for an agreement', async () => {
-		await changeAgreementAc(12 * ONE)
+	it('should increase collateralAmount for an agreement', async () => {
+		await changeAgreementCollateralAmount(12 * ONE)
 	})
 
-	it('should decrease Ac for an agreement', async () => {
-		await changeAgreementAc(8 * ONE)
+	it('should decrease collateralAmount for an agreement', async () => {
+		await changeAgreementCollateralAmount(8 * ONE)
 	})
 
-	it('should return Ab and claim Ac', async () => {
-		await returnAb()
+	it('should return borrowedAmount and claim collateralAmount', async () => {
+		await returnBorrowedAmount()
 	})
 
-	it('should liquidate and claim as Pb after returnTime', async () => {
+	it('should liquidate and claim as lender after returnTime', async () => {
 		await createRequest(ONE)
 		await createAgreement(ONE)
 
 		const now = web3.eth.getBlock('latest').timestamp
-		const returnTime = (await LA.returnTime()).toNumber()
+		const returnTime = (await lendingAgreement.returnTime()).toNumber()
 		await wait(returnTime - now + 100)
-		await LA.liquidate({ from: Pb })
-		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+		await lendingAgreement.liquidate({ from: lender })
+		const tokenBalBefore = (await token.balanceOf(lender)).toNumber()
 
 		// We simulate a trade by adding balance for the DX:
-		await Tb.transfer(DX.address, 3 * ONE)
-		await LA.claimFunds({ from: Pb })
+		await token.transfer(DX.address, 3 * ONE)
+		await lendingAgreement.claimFunds({ from: lender })
 
-		// Check Pb received liquidated collateral
-		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
-		assert.equal(TbBalBefore + 3 * ONE, TbBalAfter)
+		// Check lender received liquidated collateral
+		const tokenBalAfter = (await token.balanceOf(lender)).toNumber()
+		assert.equal(tokenBalBefore + 3 * ONE, tokenBalAfter)
 	})
 
-	it('should liquidate and claim as Pb due to insufficient collateral', async () => {
+	it('should liquidate and claim as lender due to insufficient collateral', async () => {
 		await createRequest(ONE)
 		await createAgreement(ONE)
 
 		await DX.changeMarketPrice(4)
 
-		await LA.liquidate({ from: Pb })
-		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+		await lendingAgreement.liquidate({ from: lender })
+		const tokenBalBefore = (await token.balanceOf(lender)).toNumber()
 
 		// We simulate a trade by adding balance for the DX:
-		await Tb.transfer(DX.address, 3 * ONE)
-		await LA.claimFunds({ from: Pb })
+		await token.transfer(DX.address, 3 * ONE)
+		await lendingAgreement.claimFunds({ from: lender })
 
-		// Check Pb received liquidated collateral
-		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
-		assert.equal(TbBalBefore + 3 * ONE, TbBalAfter)
+		// Check lender received liquidated collateral
+		const tokenBalAfter = (await token.balanceOf(lender)).toNumber()
+		assert.equal(tokenBalBefore + 3 * ONE, tokenBalAfter)
 	})
 
-	it('should reward non Pb with incentivization, liquidate and claim due to insufficient collateral', async () => {
+	it('should reward non lender with incentivization, liquidate and claim due to insufficient collateral', async () => {
 		// We have to reset market price to 2
 		await DX.changeMarketPrice(2)
 		await createRequest(ONE)
 		await createAgreement(ONE)
 
 		await DX.changeMarketPrice(4)
-		const TcBalBefore = (await Tc.balanceOf(accounts[2])).toNumber()
-		const TbBalBefore = (await Tb.balanceOf(Pb)).toNumber()
+		const collateralTokenBalBefore = (await collateralToken.balanceOf(accounts[2])).toNumber()
+		const tokenBalBefore = (await token.balanceOf(lender)).toNumber()
 
-		const inc = (await LA.incentivization()).toNumber()
+		const inc = (await lendingAgreement.incentivization()).toNumber()
 		
-		await LA.liquidate({ from: accounts[2] })
+		await lendingAgreement.liquidate({ from: accounts[2] })
 
 		// We simulate a trade by adding balance for the DX:
-		await Tb.transfer(DX.address, 3 * ONE - 10 ** 15)
-		await LA.claimFunds({ from: Pb })
+		await token.transfer(DX.address, 3 * ONE - 10 ** 15)
+		await lendingAgreement.claimFunds({ from: lender })
 
 		// Check incetivizer received part of collateral
-		const TcBalAfter = (await Tc.balanceOf(accounts[2])).toNumber()
-		assert.equal(TcBalBefore + 10 ** 15, TcBalAfter)
+		const collateralTokenBalAfter = (await collateralToken.balanceOf(accounts[2])).toNumber()
+		assert.equal(collateralTokenBalBefore + 10 ** 15, collateralTokenBalAfter)
 
-		// Check Pb received liquidated collateral
-		const TbBalAfter = (await Tb.balanceOf(Pb)).toNumber()
-		assert.equal(TbBalBefore + 3 * ONE - 10 ** 15, TbBalAfter)
+		// Check lender received liquidated collateral
+		const tokenBalAfter = (await token.balanceOf(lender)).toNumber()
+		assert.equal(tokenBalBefore + 3 * ONE - 10 ** 15, tokenBalAfter)
 	})
 
-	async function createRequest(Ab) {
+	async function createRequest(borrowedAmount) {
 		const now = web3.eth.getBlock('latest').timestamp
 		const sixHrs = 60 * 60 * 6
-		const latestIndex = (await RR.latestIndices(Tb.address)).toNumber()
+		const latestIndex = (await requestRegistry.latestIndices(token.address)).toNumber()
 		// We multiply by latestIndex for calls after wait() to scuceed
 		const returnTime = now + (latestIndex + 1) * sixHrs
-		await RR.postRequest(Tc.address, Tb.address, Ab, returnTime, { from: Pc })
+		await requestRegistry.postRequest(collateralToken.address, token.address, borrowedAmount, returnTime, { from: borrower })
 
 		// Check req was created
-		const thisRequest = await RR.requests(Tb.address, latestIndex)
+		const thisRequest = await requestRegistry.requests(token.address, latestIndex)
 		for (let i = 2; i < 4; i++) {
 			thisRequest[i] = thisRequest[i].toNumber()
 		}
-		const a = [Pc, Tc.address, Ab, returnTime]
+		const a = [borrower, collateralToken.address, borrowedAmount, returnTime]
 		assert.deepEqual(thisRequest, a)
 
 		// Check latest index was incremented
-		const latestIndexAfter = (await RR.latestIndices(Tb.address)).toNumber()
+		const latestIndexAfter = (await requestRegistry.latestIndices(token.address)).toNumber()
 		assert.equal(latestIndex + 1, latestIndexAfter)
 
 		count++
 	}
 
 	async function cancelRequest() {
-		await RR.cancelRequest(Tb.address, 0, { from: Pc })
+		await requestRegistry.cancelRequest(token.address, 0, { from: borrower })
 
 		// Check request was deleted
-		const thisRequest = await RR.requests(Tb.address, 0)
+		const thisRequest = await requestRegistry.requests(token.address, 0)
 		for (let i = 2; i < 4; i++) {
 			thisRequest[i] = thisRequest[i].toNumber()
 		}
@@ -175,15 +172,15 @@ contract('DTL', async (accounts) => {
 		}
 	}
 
-	async function createAgreement(Ab) {
-		await Tc.approve(RR.address, 6 * Ab, { from: Pc })
-		await Tb.approve(RR.address, Ab, { from: Pb })
-		const latestIndex = (await RR.latestIndices(Tb.address)).toNumber()
+	async function createAgreement(borrowedAmount) {
+		await collateralToken.approve(requestRegistry.address, 6 * borrowedAmount, { from: borrower })
+		await token.approve(requestRegistry.address, borrowedAmount, { from: lender })
+		const latestIndex = (await requestRegistry.latestIndices(token.address)).toNumber()
 
-		const TbBalBefore = (await Tb.balanceOf(Pc)).toNumber()
+		const tokenBalBefore = (await token.balanceOf(borrower)).toNumber()
 
 		let agreement
-		await RR.acceptRequest(Tb.address, latestIndex - 1, 6000, { from: Pb })
+		await requestRegistry.acceptRequest(token.address, latestIndex - 1, 6000, { from: lender })
 			.then(res => {
 				// Expectation: agreement is last log
 				let length = res.logs.length
@@ -191,70 +188,70 @@ contract('DTL', async (accounts) => {
 				agreement = log.args.agreement
 			})
 
-		LA = LendingAgreement.at(agreement)
+		lendingAgreement = LendingAgreement.at(agreement)
 		
 		// Check agreement was created correctly
-		const returnTime = (await LA.returnTime()).toNumber()
+		const returnTime = (await lendingAgreement.returnTime()).toNumber()
 		const now = web3.eth.getBlock('latest').timestamp
 		assert(now < returnTime)
 
 		// Check collateral was provided
-		const TcBal = (await Tc.balanceOf(LA.address)).toNumber()
-		assert.equal(TcBal, 6 * Ab)
+		const collateralTokenBal = (await collateralToken.balanceOf(lendingAgreement.address)).toNumber()
+		assert.equal(collateralTokenBal, 6 * borrowedAmount)
 
-		// Check Tb was provided
-		const TbBalAfter = (await Tb.balanceOf(Pc)).toNumber()
-		assert.equal(TbBalBefore + Ab, TbBalAfter)
+		// Check token was provided
+		const tokenBalAfter = (await token.balanceOf(borrower)).toNumber()
+		assert.equal(tokenBalBefore + borrowedAmount, tokenBalAfter)
 	}
 
-	async function changePb() {
-		await LA.changePb(accounts[2], { from: Pb })
-		const newPb = await LA.Pb()
-		assert.equal(newPb, accounts[2])
+	async function changeLender() {
+		await lendingAgreement.changeLender(accounts[2], { from: lender })
+		const newLender = await lendingAgreement.lender()
+		assert.equal(newLender, accounts[2])
 
-		await LA.changePb(Pb, { from: accounts[2] })
-		const newerPb = await LA.Pb()
-		assert.equal(newerPb, Pb)
+		await lendingAgreement.changeLender(lender, { from: accounts[2] })
+		const newerlender = await lendingAgreement.lender()
+		assert.equal(newerlender, lender)
 	}
 
-	async function changePc() {
-		await LA.changePc(accounts[2], { from: Pc })
-		const newPc = await LA.Pc()
-		assert.equal(newPc, accounts[2])
+	async function changeBorrower() {
+		await lendingAgreement.changeBorrower(accounts[2], { from: borrower })
+		const newBorrower = await lendingAgreement.borrower()
+		assert.equal(newBorrower, accounts[2])
 
-		await LA.changePc(Pc, { from: accounts[2] })
-		const newerPc = await LA.Pc()
-		assert.equal(newerPc, Pc)
+		await lendingAgreement.changeBorrower(borrower, { from: accounts[2] })
+		const newerborrower = await lendingAgreement.borrower()
+		assert.equal(newerborrower, borrower)
 	}
 
-	async function changeAgreementAc(Ac) {
-		await Tc.approve(LA.address, Ac, { from: Pc })
-		await LA.changeAc(Ac, { from: Pc })
+	async function changeAgreementCollateralAmount(collateralAmount) {
+		await collateralToken.approve(lendingAgreement.address, collateralAmount, { from: borrower })
+		await lendingAgreement.changeCollateralAmount(collateralAmount, { from: borrower })
 
-		// Check Ac has been increased
-		const newAc = await LA.Ac()
-		assert.equal(newAc, Ac)
+		// Check collateralAmount has been increased
+		const newCollateralAmount = await lendingAgreement.collateralAmount()
+		assert.equal(newCollateralAmount, collateralAmount)
 	}
 
-	async function returnAb() {
-		const balAbBefore = (await Tb.balanceOf(Pc)).toNumber()
-		const balAcBefore = (await Tc.balanceOf(Pc)).toNumber()
-		const Ab = (await LA.Ab()).toNumber()
-		const Ac = (await LA.Ac()).toNumber()
+	async function returnBorrowedAmount() {
+		const balBorrowedAmountBefore = (await token.balanceOf(borrower)).toNumber()
+		const balCollateralAmountBefore = (await collateralToken.balanceOf(borrower)).toNumber()
+		const borrowedAmount = (await lendingAgreement.borrowedAmount()).toNumber()
+		const collateralAmount = (await lendingAgreement.collateralAmount()).toNumber()
 
-		await Tb.approve(LA.address, Ab, { from: Pc })
-		await LA.returnTbAndChangeAc(Ab, 0)
+		await token.approve(lendingAgreement.address, borrowedAmount, { from: borrower })
+		await lendingAgreement.returnTokensAndChangeCollateralAmount(borrowedAmount, 0)
 
-		// Check Ab has been returned
-		const balAbAfter = (await Tb.balanceOf(Pc)).toNumber()
-		assert.equal(balAbBefore - Ab, balAbAfter)
+		// Check borrowedAmount has been returned
+		const balBorrowedAmountAfter = (await token.balanceOf(borrower)).toNumber()
+		assert.equal(balBorrowedAmountBefore - borrowedAmount, balBorrowedAmountAfter)
 
-		// Check Ac has been returned
-		const balAcAfter = (await Tc.balanceOf(Pc)).toNumber()
-		assert.equal(balAcBefore + Ac, balAcAfter)
+		// Check collateralAmount has been returned
+		const balCollateralAmountAfter = (await collateralToken.balanceOf(borrower)).toNumber()
+		assert.equal(balCollateralAmountBefore + collateralAmount, balCollateralAmountAfter)
 	}
 
 	async function liquidate(account) {
-		await LA.liquidate()
+		await lendingAgreement.liquidate()
 	}
 })

@@ -1,38 +1,40 @@
 pragma solidity ^0.4.19;
 
-import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
-import "./DX.sol";
+import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
+import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
+import "@gnosis.pm/dx-contracts/contracts/DutchExchange.sol";
+import "./MathSimple.sol";
 
-contract LendingAgreement {
+contract LendingAgreement is Proxied, MathSimple {
 
     uint constant MINIMUM_COLLATERAL = 2;
 
-    address masterCopy;
-
     address public dx;
-    address public RR;
 
-    address public Pb;
-    address public Pc;
-    address public Tc;
-    address public Tb;
-    uint public Ac;
-    uint public Ab;
+    address public lender;
+    address public borrower;
+    address public collateralToken;
+    address public token;
+    uint public collateralAmount;
+    uint public borrowedAmount;
     uint public returnTime;
     uint public incentivization;
 
     // auctionIndex in DX that holds funds
     uint public auctionIndex;
 
+    event Log(string l, uint n);
+    event LogAddress(string l, address a);
+
     // > setupLendingAgreement
     function setupLendingAgreement(
         address _dx,
-        address _Pb,
-        address _Pc,
-        address _Tc,
-        address _Tb,
-        uint _Ac,
-        uint _Ab,
+        address _lender,
+        address _borrower,
+        address _collateralToken,
+        address _token,
+        uint _collateralAmount,
+        uint _borrowedAmount,
         uint _returnTime,
         uint _incentivization
     )
@@ -42,118 +44,126 @@ contract LendingAgreement {
         require(dx == 0x0);
 
         dx = _dx;
-        RR = msg.sender;
 
-        Pb = _Pb;
-        Pc = _Pc;
-        Tc = _Tc;
-        Tb = _Tb;
-        Ac = _Ac;
-        Ab = _Ab;
+        lender = _lender;
+        borrower = _borrower;
+        collateralToken = _collateralToken;
+        token = _token;
+        collateralAmount = _collateralAmount;
+        borrowedAmount = _borrowedAmount;
         returnTime = _returnTime;
         incentivization = _incentivization;
     }
 
-    function changePb(
-        address _Pb
+    function changeLender(
+        address _lender
     )
         public
     {
-        require(msg.sender == Pb);
-        Pb = _Pb;
+        require(msg.sender == lender);
+        lender = _lender;
     }
 
-    function changePc(
-        address _Pc
+    function changeBorrower(
+        address _borrower
     )
         public
     {
-        require(msg.sender == Pc);
-        Pc = _Pc;
+        require(msg.sender == borrower);
+        borrower = _borrower;
     }
 
-    function changeAc(
-        uint _Ac
+    function changeCollateralAmount(
+        uint _collateralAmount
     )
         public
     {
-        require(msg.sender == Pc);
+        require(msg.sender == borrower);
 
-        if (_Ac <= Ac) {
-            // Ac is intended to be decreased
-            if (Ab == 0) {
-                // Return collateral to Pc and destroy contract
-                require(StandardToken(Tc).transfer(msg.sender, Ac));
+        if (_collateralAmount <= collateralAmount) {
+            // collateralAmount is intended to be decreased
+            if (borrowedAmount == 0) {
+                // Return collateral to borrower and destroy contract
+                require(StandardToken(collateralToken).transfer(msg.sender, collateralAmount));
                 selfdestruct(0x0);
             } else {
                 // get ratio of prices from DutchX
                 uint num; uint den;
-                (num, den) = getRatioOfPricesFromDX(Tb, Tc);
+                (num, den) = getRatioOfPricesFromDX(token, collateralToken);
 
                 // new collateral amount will be:
-                uint minimum = mul(mul(Ab, MINIMUM_COLLATERAL), num) / den;
-                uint newAc = max(minimum, _Ac);
+                uint minimum = mul(mul(borrowedAmount, MINIMUM_COLLATERAL), num) / den;
+                uint newCollateralAmount = max(minimum, _collateralAmount);
 
-                if (newAc < Ac) {
+                if (newCollateralAmount < collateralAmount) {
                     // Cannot underflow because of above assumption
-                    require(StandardToken(Tc).transfer(msg.sender, Ac - newAc));
-                    Ac = newAc;
+                    require(StandardToken(collateralToken).transfer(
+                        msg.sender, collateralAmount - newCollateralAmount
+                    ));
+                    collateralAmount = newCollateralAmount;
                 }
             }
-        } else if (_Ac > Ac) {
-            // Ac is increased
+        } else if (_collateralAmount > collateralAmount) {
+            // collateralAmount is increased
             // Cannot underflow because of above assumption
-            require(StandardToken(Tc).transferFrom(msg.sender, this, _Ac - Ac));
-            Ac = _Ac;
+            require(StandardToken(collateralToken).transferFrom(
+                msg.sender, this, _collateralAmount - collateralAmount
+            ));
+            collateralAmount = _collateralAmount;
         }
     }
 
-    function returnTb(uint amount)
+    function returnTokens(uint amount)
         public
     {
-        require(msg.sender == Pc);
+        require(msg.sender == borrower);
 
         // Never return more than was borrowed
-        amount = min(amount, Ab);
-        require(StandardToken(Tb).transferFrom(Pc, Pb, amount));
+        amount = min(amount, borrowedAmount);
+        require(StandardToken(token).transferFrom(borrower, lender, amount));
+
         // Cannot underflow because of above assignment
-        Ab -= amount;
+        borrowedAmount -= amount;
     }
 
-    function returnTbAndChangeAc(
+    function returnTokensAndChangeCollateralAmount(
         uint amountToReturn,
-        uint Ac
+        uint collateralAmount
     )
         public
     {
-        returnTb(amountToReturn);
-        changeAc(Ac);
+        returnTokens(amountToReturn);
+        changeCollateralAmount(collateralAmount);
     }
 
     function liquidate()
         public
     {
         if (now >= returnTime) {
-            require(msg.sender == Pb);
+            require(msg.sender == lender);
             // liquidate by auctioning off on DutchX
-            (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac);
-            // require(StandardToken(Tc).transfer(Pb, Ac));
+            (,auctionIndex,) = DutchExchange(dx).depositAndSell(collateralToken, token, collateralAmount);
+            // require(StandardToken(collateralToken).transfer(lender, collateralAmount));
         } else {
-            // get price of Tc in Tb
+            // get price of collateralToken in borrowed token
             uint num; uint den;
-            (num, den) = getRatioOfPricesFromDX(Tb, Tc);
+            (num, den) = getRatioOfPricesFromDX(token, collateralToken);
 
             // if value of collateral amount is less than twice of amount borrowed
-            if (Ac < mul(mul(Ab, MINIMUM_COLLATERAL), num) / den) {
+            if (collateralAmount < mul(mul(borrowedAmount, MINIMUM_COLLATERAL), num) / den) {
                 // liquidate
 
-                if (msg.sender == Pb) {
-                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac);
+                if (msg.sender == lender) {
+                    (,auctionIndex,) = DutchExchange(dx).depositAndSell(
+                        collateralToken, token, collateralAmount
+                    );
                 } else {
-                    uint incentive = incentivization == 0 ? incentive : Ac / incentivization;
-                    require(StandardToken(Tc).transfer(msg.sender, incentive));
-                    // Cannot underflow because in by line above, Ac > incentive
-                    (,auctionIndex,) = DX(dx).depositAndSell(Tc, Tb, Ac - incentive);
+                    uint incentive = incentivization == 0 ? incentive : collateralAmount / incentivization;
+                    require(StandardToken(collateralToken).transfer(msg.sender, incentive));
+                    // Cannot underflow because in by line above, collateralAmount > incentive
+                    (,auctionIndex,) = DutchExchange(dx).depositAndSell(
+                        collateralToken, token, collateralAmount - incentive
+                    );
                 }
             }
         }
@@ -163,11 +173,11 @@ contract LendingAgreement {
         public
     {
         // passing in uint(-1) will mean all balances will be claimed
-        DX(dx).claimAndWithdraw(Tc, Tb, this, auctionIndex, uint(-1));
-        uint bal = StandardToken(Tb).balanceOf(this);
-        require(StandardToken(Tb).transfer(Pb, bal));
+        DutchExchange(dx).claimAndWithdraw(collateralToken, token, this, auctionIndex, uint(-1));
+        uint bal = StandardToken(token).balanceOf(this);
+        require(StandardToken(token).transfer(lender, bal));
         if (bal > 0) {
-            // The only time this contract holds Tb is when Tc has been liquidated
+            // The only time this contract holds borrowed tokens is when collateralToken has been liquidated
             // After funds have been claimed, contract can be destroyed:
             selfdestruct(0x0);
         }
@@ -182,43 +192,7 @@ contract LendingAgreement {
         view
         returns (uint num, uint den)
     {
-        uint lAI = DX(dx).getAuctionIndex(token1, token2);
-        (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+        uint lAI = DutchExchange(dx).getAuctionIndex(token1, token2);
+        (num, den) = DutchExchange(dx).getPriceInPastAuction(token1, token2, lAI);
     }
-
-    function max(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        return (a < b) ? b : a;
-    }
-
-    function min(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        return (a > b) ? b : a;
-    }
-
-    function safeToMul(uint a, uint b)
-        public
-        pure
-        returns (bool)
-    {
-        return b == 0 || a * b / b == a;
-    }
-
-    function mul(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        require(safeToMul(a, b));
-        return a * b;
-    }
-
-    event Log(string l, uint n);
-    event LogAddress(string l, address a);
 }

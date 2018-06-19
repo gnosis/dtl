@@ -1,18 +1,19 @@
 pragma solidity ^0.4.19;
 
-import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
-import "./DX.sol";
+import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
+import "@gnosis.pm/util-contracts/contracts/Proxy.sol";
+import "@gnosis.pm/dx-contracts/contracts/DutchExchange.sol";
 import "./LendingAgreement.sol";
-import "./Proxy.sol";
+import "./MathSimple.sol";
 
-contract RequestRegistry {
+contract RequestRegistry is MathSimple {
 
     uint constant AGREEMENT_COLLATERAL = 3;
 
     struct request {
-        address Pc;
-        address Tc;
-        uint Ab;
+        address borrower;
+        address collateralToken;
+        uint borrowedAmount;
         uint returnTime;
     }
 
@@ -25,6 +26,18 @@ contract RequestRegistry {
     // token => latestIndex
     mapping (address => uint) public latestIndices;
 
+    event Log(
+        string l,
+        uint n
+    );
+
+    event LogAddress(
+        string l,
+        address a
+    );
+
+    event NewAgreement(address agreement);
+
     function RequestRegistry(
         address _dx,
         address _lendingAgreement
@@ -36,20 +49,20 @@ contract RequestRegistry {
     }
 
     /// @dev post a new borrow request
-    /// @param Tc - 
+    /// @param collateralToken - 
     function postRequest(
-        address Tc,
+        address collateralToken,
         address Tb,
-        uint Ab,
+        uint borrowedAmount,
         uint returnTime
     )
         public
     {
         // R1
-        require(Tc != Tb);
+        require(collateralToken != Tb);
 
         // R2
-        require(Ab > 0);
+        require(borrowedAmount > 0);
 
         // R3
         require(returnTime > now);
@@ -61,15 +74,15 @@ contract RequestRegistry {
 
         // Token pair should be initialized
         // (otherwise it could never get accepted)
-        require(DX(dx).getAuctionIndex(Tc, Tb) > 0);
+        require(DutchExchange(dx).getAuctionIndex(collateralToken, Tb) > 0);
 
         uint latestIndex = latestIndices[Tb];
 
         // Create borrow request
         requests[Tb][latestIndex] = request(
             msg.sender,
-            Tc,
-            Ab,
+            collateralToken,
+            borrowedAmount,
             returnTime
         );
 
@@ -83,8 +96,8 @@ contract RequestRegistry {
     )
         public
     {
-        require(msg.sender == requests[Tb][index].Pc);
-        // if (!(msg.sender == requests[Tb][index].Pc)) {
+        require(msg.sender == requests[Tb][index].borrower);
+        // if (!(msg.sender == requests[Tb][index].borrower)) {
         //     Log('R1', 1);
         //     return;
         // }
@@ -105,13 +118,13 @@ contract RequestRegistry {
 
         // latest auction index for DutchX auction
         uint num; uint den;
-        (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.Tc);
+        (num, den) = getRatioOfPricesFromDX(Tb, thisRequest.collateralToken);
 
-        uint Ac = mul(mul(thisRequest.Ab, AGREEMENT_COLLATERAL), num) / den;
+        uint Ac = mul(mul(thisRequest.borrowedAmount, AGREEMENT_COLLATERAL), num) / den;
 
         // Perform lending
-        require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab));
-        // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.Pc, thisRequest.Ab)) {
+        require(StandardToken(Tb).transferFrom(msg.sender, thisRequest.borrower, thisRequest.borrowedAmount));
+        // if (!StandardToken(Tb).transferFrom(msg.sender, thisRequest.borrower, thisRequest.borrowedAmount)) {
         //     Log('R2',1);
         // }
 
@@ -120,18 +133,18 @@ contract RequestRegistry {
         LendingAgreement(newProxyForAgreement).setupLendingAgreement(
             dx,
             msg.sender,
-            thisRequest.Pc,
-            thisRequest.Tc,
+            thisRequest.borrower,
+            thisRequest.collateralToken,
             Tb,
             Ac,
-            thisRequest.Ab,
+            thisRequest.borrowedAmount,
             thisRequest.returnTime,
             incentivization
         );
 
-        // Transfer collateral from Pc to proxy
-        require(StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac));
-        // if (!StandardToken(thisRequest.Tc).transferFrom(thisRequest.Pc, newProxyForAgreement, Ac)) {
+        // Transfer collateral from borrower to proxy
+        require(StandardToken(thisRequest.collateralToken).transferFrom(thisRequest.borrower, newProxyForAgreement, Ac));
+        // if (!StandardToken(thisRequest.collateralToken).transferFrom(thisRequest.borrower, newProxyForAgreement, Ac)) {
         //     Log('R3',1);
         // }
 
@@ -149,51 +162,11 @@ contract RequestRegistry {
         view
         returns (uint num, uint den)
     {
-        uint lAI = DX(dx).getAuctionIndex(token1, token2);
+        uint lAI = DutchExchange(dx).getAuctionIndex(token1, token2);
         // getPriceInPastAuction works the following way:
         // if token1 == token2, it outputs (1, 1).
         // if they are not equal, it outputs price in units [token2]/[token1]
         // requires that token pair to have been initialized
-        (num, den) = DX(dx).getPriceInPastAuction(token1, token2, lAI);
+        (num, den) = DutchExchange(dx).getPriceInPastAuction(token1, token2, lAI);
     }
-
-    function max(
-        uint a,
-        uint b
-    )
-        public
-        pure
-        returns (uint)
-    {
-        return (a < b) ? b : a;
-    }
-
-    function safeToMul(uint a, uint b)
-        public
-        pure
-        returns (bool)
-    {
-        return b == 0 || a * b / b == a;
-    }
-
-    function mul(uint a, uint b)
-        public
-        pure
-        returns (uint)
-    {
-        require(safeToMul(a, b));
-        return a * b;
-    }
-
-    event Log(
-        string l,
-        uint n
-    );
-
-    event LogAddress(
-        string l,
-        address a
-    );
-
-    event NewAgreement(address agreement);
 }

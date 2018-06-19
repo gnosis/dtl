@@ -1,6 +1,6 @@
 pragma solidity ^0.4.19;
 
-import "@gnosis.pm/gnosis-core-contracts/contracts/Tokens/StandardToken.sol";
+import "@gnosis.pm/util-contracts/contracts/StandardToken.sol";
 
 contract DX {
 
